@@ -1,0 +1,13 @@
+import sys
+from importlib import reload
+paths = [
+r'E:\jcBlenderToolKit',
+]
+
+for path in paths:
+    if not path in sys.path:
+        sys.path.append(path)
+
+import jBlenderTools
+reload(jBlenderTools)
+jBlenderTools.main()

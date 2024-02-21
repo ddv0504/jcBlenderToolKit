@@ -1,13 +1,253 @@
-import sys
-from importlib import reload
-paths = [
-r'E:\jcBlenderToolKit',
-]
+bl_info = {
+    "name": "QuickRezoPro Render",
+    "author": "Tri-Vima Creatives",
+    "version": (1, 0),
+    "blender": (2, 80, 0),
+    "location": "View3D > Sidebar > QuickRezoPro Render",
+    "description": "Update resolution of the selected camera and output properties",
+    "category": "Object"
+}
 
-for path in paths:
-    if not path in sys.path:
-        sys.path.append(path)
+import bpy
 
-import jBlenderTools
-reload(jBlenderTools)
-jBlenderTools.main()
+class CameraResolutionPanel(bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_camera_resolution"
+    bl_label = "QuickRezoPro Render"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'QuickRezoPro Render'
+
+    def draw(self, context):
+        layout = self.layout
+
+        # Dropdown for Resolution Presets
+        row = layout.row()
+        row.prop(context.scene, "resolution_preset", text="Resolution Presets")
+
+       	# Device brand buttons for mobile screens
+        if context.scene.resolution_preset == 'MOBILE':
+            row = layout.row()
+            row.label(text="Mobile Screens:")
+            mobile_resolutions = [
+                ("iPhone X", (1125, 2436)),
+                ("Samsung Galaxy S20", (1440, 3200)),
+                ("Google Pixel 5", (1080, 2340)),
+                ("OnePlus 9", (1080, 2400)),
+                ("Xiaomi Mi 11", (1080, 2340)),
+                # Add more mobile resolutions as needed
+            ]
+
+            for name, resolution in mobile_resolutions:
+                row = layout.row()
+                row.operator("camera_resolution.update_resolution", text=f"{name} ({resolution[0]}x{resolution[1]} px)").resolution = resolution
+
+        # Device brand buttons for tablet screens
+        elif context.scene.resolution_preset == 'TABLET':
+            row = layout.row()
+            row.label(text="Tablet Screens:")
+            tablet_resolutions = [
+                ("iPad Air (10.9-inch)", (1640, 2360)),
+                ("Samsung Galaxy Tab S7", (1600, 2560)),
+                ("Microsoft Surface Pro 7", (2736, 1824)),
+                ("Google Pixel Slate", (3000, 2000)),
+                ("Lenovo Tab M10", (1200, 1920)),
+                # Add more tablet resolutions as needed
+            ]
+
+            for name, resolution in tablet_resolutions:
+                row = layout.row()
+                row.operator("camera_resolution.update_resolution", text=f"{name} ({resolution[0]}x{resolution[1]} px)").resolution = resolution
+
+        # Device brand buttons for laptop screens
+        elif context.scene.resolution_preset == 'LAPTOP':
+            row = layout.row()
+            row.label(text="Laptop Screens:")
+            laptop_resolutions = [
+                ("MacBook Pro 13-inch", (2560, 1600)),
+                ("Dell XPS 15", (3840, 2400)),
+                ("HP Spectre x360", (1920, 1080)),
+                ("Lenovo ThinkPad X1", (3840, 2160)),
+                ("Asus ZenBook", (1920, 1080)),
+                # Add more laptop resolutions as needed
+            ]
+
+            for name, resolution in laptop_resolutions:
+                row = layout.row()
+                row.operator("camera_resolution.update_resolution", text=f"{name} ({resolution[0]}x{resolution[1]} px)").resolution = resolution
+
+        # Device brand buttons for desktop screens
+        elif context.scene.resolution_preset == 'DESKTOP':
+            row = layout.row()
+            row.label(text="Desktop Screens:")
+            desktop_resolutions = [
+                ("Full HD", (1920, 1080)),
+                ("Quad HD", (2560, 1440)),
+                ("4K Ultra HD", (3840, 2160)),
+                ("5K", (5120, 2880)),
+                # Add more desktop resolutions as needed
+            ]
+
+            for name, resolution in desktop_resolutions:
+                row = layout.row()
+                row.operator("camera_resolution.update_resolution", text=f"{name} ({resolution[0]}x{resolution[1]} px)").resolution = resolution
+	
+	# Device brand buttons for various screens
+        elif context.scene.resolution_preset == 'VARIOUS':
+            row = layout.row()
+            row.label(text="Various screens:")
+            various_resolutions = [
+                ("1K", (1024, 576)),
+                ("2K", (2048, 1080)),
+                ("4K", (3840, 2160)),
+                ("8K", (7680, 4320)),
+		("16K", (15360, 8640)),
+                # Add more desktop resolutions as needed
+            ]
+
+            for name, resolution in various_resolutions:
+                row = layout.row()
+                row.operator("camera_resolution.update_resolution", text=f"{name} ({resolution[0]}x{resolution[1]} px)").resolution = resolution
+
+	# Device brand buttons for panaromic screens
+        elif context.scene.resolution_preset == 'PANAROMIC':
+            row = layout.row()
+            row.label(text="Panaromic 2:1 screens:")
+            panaromic_resolutions = [
+                ("1K", (1000, 500)),
+                ("2K", (2000, 1000)),
+                ("4K", (4000, 2000)),
+                ("8K", (8000, 4000)),
+		("16K", (16000, 8000)),
+                # Add more desktop resolutions as needed
+            ]
+
+            for name, resolution in panaromic_resolutions:
+                row = layout.row()
+                row.operator("camera_resolution.update_resolution", text=f"{name} ({resolution[0]}x{resolution[1]} px)").resolution = resolution
+
+	# Device brand buttons for social screens
+        elif context.scene.resolution_preset == 'SOCIAL':
+            row = layout.row()
+            row.label(text="Social screens:")
+            social_resolutions = [
+                ("Youtube", (1920, 1080)),
+                ("Instagram", (1080, 1080)),
+                ("Facebook", (1200, 630)),
+                ("Dribbble", (800, 600)),
+		("Behance", (1200, 800)),
+		("Gumroad", (1600, 1200)),
+		("Artstation", (1920, 1080)),
+		("Linkedin", (1200, 628)),
+                # Add more desktop resolutions as needed
+            ]
+
+            for name, resolution in social_resolutions:
+                row = layout.row()
+                row.operator("camera_resolution.update_resolution", text=f"{name} ({resolution[0]}x{resolution[1]} px)").resolution = resolution
+ 
+	# Custom Resolution Input
+        row = layout.row()
+        row.label(text="Custom Resolution:")
+        col = row.column(align=True)
+        col.prop(context.scene.render, "resolution_x", text="Width")
+        col.prop(context.scene.render, "resolution_y", text="Height")
+	
+	# Switch button
+        row = layout.row()
+        row.operator("camera_resolution.switch_resolution", text="Switch Width/Height")
+
+        # FPS slider
+        row = layout.row()
+        row.label(text="FPS:")
+        row.prop(context.scene.render, "fps", text="")
+
+        # Render buttons
+        row = layout.row()
+        row.operator("render.render", text="Render Image")
+        row.operator("render.render", text="Render Animation").animation = True
+        row.operator("render.opengl", text="Viewport Render Image")
+
+class UpdateResolutionOperator(bpy.types.Operator):
+    bl_idname = "camera_resolution.update_resolution"
+    bl_label = "Update Resolution"
+    resolution: bpy.props.IntVectorProperty(name="Resolution", size=2)
+
+    def execute(self, context):
+        camera = context.scene.camera
+        if camera:
+            context.scene.render.resolution_x = self.resolution[0]
+            context.scene.render.resolution_y = self.resolution[1]
+        return {'FINISHED'}
+
+class SwitchResolutionOperator(bpy.types.Operator):
+    bl_idname = "camera_resolution.switch_resolution"
+    bl_label = "Switch Width/Height"
+
+    def execute(self, context):
+        temp = context.scene.render.resolution_x
+        context.scene.render.resolution_x = context.scene.render.resolution_y
+        context.scene.render.resolution_y = temp
+        return {'FINISHED'}
+
+def update_resolution_preset(self, context):
+    if context.scene.resolution_preset == 'MOBILE':
+        context.scene.camera_resolution_preset = 'MOBILE'
+    elif context.scene.resolution_preset == 'TABLET':
+        context.scene.camera_resolution_preset = 'TABLET'
+    elif context.scene.resolution_preset == 'LAPTOP':
+        context.scene.camera_resolution_preset = 'LAPTOP'
+    elif context.scene.resolution_preset == 'DESKTOP':
+        context.scene.camera_resolution_preset = 'DESKTOP'
+    elif context.scene.resolution_preset == 'VARIOUS':
+        context.scene.camera_resolution_preset = 'VARIOUS'
+    elif context.scene.resolution_preset == 'PANAROMIC':
+        context.scene.camera_resolution_preset = 'PANAROMIC'
+    elif context.scene.resolution_preset == 'SOCIAL':
+        context.scene.camera_resolution_preset = 'SOCIAL'
+
+classes = (
+    CameraResolutionPanel,
+    UpdateResolutionOperator,
+    SwitchResolutionOperator
+)
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    bpy.types.Scene.resolution_preset = bpy.props.EnumProperty(
+        items=[
+            ('MOBILE', 'Mobile Screens', 'Mobile Screens', '', 1),
+            ('TABLET', 'Tablet Screens', 'Tablet Screens', '', 2),
+            ('LAPTOP', 'Laptop Screens', 'Laptop Screens', '', 3),
+            ('DESKTOP', 'Desktop Screens', 'Desktop Screens', '', 4),
+	    ('VARIOUS', 'Various Screens', 'Various Screens', '', 5),
+	    ('PANAROMIC', 'Panaromic Screens', 'Panaromic Screens', '', 6),
+	    ('SOCIAL', 'Social Screens', 'Social Screens', '', 7),
+        ],
+        name="Resolution Presets",
+        description="Select the resolution presets category",
+        update=update_resolution_preset
+    )
+    bpy.types.Scene.camera_resolution_preset = bpy.props.EnumProperty(
+        items=[
+            ('MOBILE', 'Mobile Screens', 'Mobile Screens', '', 1),
+            ('TABLET', 'Tablet Screens', 'Tablet Screens', '', 2),
+            ('LAPTOP', 'Laptop Screens', 'Laptop Screens', '', 3),
+            ('DESKTOP', 'Desktop Screens', 'Desktop Screens', '', 4),
+	    ('VARIOUS', 'Various Screens', 'Various Screens', '', 5),
+	    ('PANAROMIC', 'Panaromic Screens', 'Panaromic Screens', '', 6),
+	    ('SOCIAL', 'Social Screens', 'Social Screens', '', 7),
+        ],
+        name="Camera Resolution Presets",
+        description="Select the camera resolution presets category"
+    )
+
+def unregister():
+    for cls in classes:
+        bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.resolution_preset
+    del bpy.types.Scene.camera_resolution_preset
+    del bpy.types.Scene.output_path
+
+if __name__ == "__main__":
+    register()

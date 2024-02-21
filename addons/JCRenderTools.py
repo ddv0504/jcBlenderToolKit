@@ -173,7 +173,17 @@ class JC_Render_Panel(bpy.types.Panel):
         col = row.column(align=True)
         col.prop(context.scene.render, "resolution_x", text="Width")
         col.prop(context.scene.render, "resolution_y", text="Height")
-	
+
+        # Start Frame
+        row = layout.row()
+        row.label(text="Start Frame:")
+        row.prop(context.scene, "frame_start", text="")
+        # End Frame
+        row = layout.row()
+        row.label(text="End Frame:")
+        row.prop(context.scene, "frame_end", text="")
+
+
         # FPS slider
         row = layout.row()
         row.label(text="FPS:")
@@ -185,10 +195,13 @@ class JC_Render_Panel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Output Properties:")
         col = row.column(align=True)
-        col.prop(context.scene.render, "filepath", text="")
-        col.prop(context.scene.render, "file_format", text="Format")
-        col.prop(context.scene.render, "use_overwrite", text="Overwrite")
-        col.prop(context.scene.render, "use_placeholder", text="Placeholder")
+        col.prop(context.scene.render.image_settings, "file_format", text="Format")
+        # Color
+        col.prop(context.scene.render.image_settings, "color_mode", text="Color")
+        # Color depth
+        col.prop(context.scene.render.image_settings, "color_depth", expand=True,text="Depth")
+        # Compression
+        col.prop(context.scene.render.image_settings, "compression", text="Compression")
 
         # Render buttons
         row = layout.row()

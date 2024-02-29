@@ -1,6 +1,6 @@
 #-*- coding: utf-8 -*-
 import bpy
-
+import sys
 def main(context):
     # Get the current scene
     for ob in context.scene.objects:
@@ -129,6 +129,23 @@ class JCSolidShaderBlue(bpy.types.Operator):
 
         return {'FINISHED'}
 
+# Submit to Deadline
+class submit_to_deadline(bpy.types.Operator):
+    bl_idname = "render.submit_to_deadline"
+    bl_label = "Submit to Deadline"
+    bl_options = {'REGISTER', 'UNDO'}
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None
+    def execute(self, context):
+        scriptPath = r'\\192.168.0.226\DeadlineRepository10\submission\Blender\Main'
+        if not scriptPath in sys.path:
+            sys.path.append(scriptPath)
+        import SubmitBlenderToDeadline
+        SubmitBlenderToDeadline.main()
+
+        return {'FINISHED'}
+
 # Shader Operators
 class JC_Shader_Panel(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_JC_Shader_Tools"
@@ -209,7 +226,11 @@ class JC_Render_Panel(bpy.types.Panel):
         row.operator("render.render", text="Render Animation").animation = True
         row.operator("render.opengl", text="Viewport Render Image")
         row.operator("render.opengl", text="Viewport Render Animation").animation = True
-classes = [JC_Shader_Panel,JC_Render_Panel,JCSolidShaderRed,JCSolidShaderGreen,JCSolidShaderBlue]
+        # Submit to Deadline
+        row = layout.row()
+        row.operator("render.submit_to_deadline", text="Submit to Deadline")
+        
+classes = [JC_Shader_Panel,JC_Render_Panel,JCSolidShaderRed,JCSolidShaderGreen,JCSolidShaderBlue,submit_to_deadline]
 # Frame Change Handler
 def frame_change_handler(scene):
     # logger.info('Frame Changed')

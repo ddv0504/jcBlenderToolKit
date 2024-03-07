@@ -208,6 +208,12 @@ class JC_Render_Panel(bpy.types.Panel):
         row = layout.row()
         row.label(text="=====================")
         
+        # Output Path
+        row = layout.row()
+        row.label(text="Output Path:")
+        col = row.column(align=True)
+        col.prop(context.scene.render, "filepath", text="")
+        
         # Output Properties
         row = layout.row()
         row.label(text="Output Properties:")

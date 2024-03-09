@@ -1,10 +1,16 @@
 #-*- coding: utf-8 -*-
 import bpy
+import os
 import sys
-def main(context):
-    # Get the current scene
-    for ob in context.scene.objects:
-        print(ob.name)
+from bpy.props import StringProperty, BoolProperty
+from bpy_extras.io_utils import ImportHelper
+from bpy.types import Operator
+
+
+# def main(context):
+#     # Get the current scene
+#     for ob in context.scene.objects:
+#         print(ob.name)
     # scene = context.scene
 
 bl_info = {
@@ -141,12 +147,68 @@ class submit_to_deadline(bpy.types.Operator):
         scriptPath = r'\\192.168.0.226\DeadlineRepository10\submission\Blender\Main'
         if not scriptPath in sys.path:
             sys.path.append(scriptPath)
-        import SubmitBlenderToDeadline
-        SubmitBlenderToDeadline.main()
+        try:
+            import SubmitBlenderToDeadline
+            SubmitBlenderToDeadline.main()
+        except ImportError:
+            print('Error importing SubmitBlenderToDeadline')
 
         return {'FINISHED'}
 
-# Shader Operators
+# FBX Camera Importer
+class JC_FBX_Camera_Importer(bpy.types.Operator, ImportHelper):
+    bl_idname = "import.jc_fbx_camera"
+    bl_label = "Import FBX Camera"
+    bl_options = {'REGISTER', 'UNDO'}
+    filter_glob: StringProperty(default='*.fbx',options={'HIDDEN'})
+    Camera_name_as_filename: BoolProperty(name="Use Custom Props", default=True)
+    
+    def execute(self, context):
+        # Get the current scene
+        scene = context.scene
+        # Get the selected object
+        selected = context.selected_objects
+        # Get the file path
+        file_path = self.filepath
+        # Import the camera
+        bpy.ops.import_scene.fbx(filepath=file_path,use_anim=True,use_custom_props=True,use_custom_props_enum_as_string=True,anim_offset=0)
+        # Get the camera
+        camera = bpy.context.selected_objects[0]
+        # Set the camera as the active camera
+        scene.camera = camera
+        # Set the camera name as the file name
+        if self.Camera_name_as_filename:
+            camera.name = os.path.splitext(os.path.basename(file_path))[0]
+            # Set the camera name as the file name
+            camera.data.name = os.path.splitext(os.path.basename(file_path))[0]
+        try:
+            # Scene frame start
+            scene.frame_start = int(camera.animation_data.action.frame_range[0])
+            # Scene frame end
+            scene.frame_end = int(camera.animation_data.action.frame_range[-1])
+        except:
+            print('No animation data found')
+        # Set the camera to the current view
+        bpy.ops.view3d.camera_to_view()
+        
+        return {'FINISHED'}
+
+# Import Tools
+class JC_Import_Panel(bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_JC_Import_Panel"
+    bl_label = "Import"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'JC_Render_Tools'
+
+    def draw(self, context):
+        layout = self.layout
+        # FBX Camera Importer
+        row = layout.row()
+        row.label(text="Import FBX Camera:")
+        row.operator("import.jc_fbx_camera", text="Import FBX Camera")
+
+# Shader Tools
 class JC_Shader_Panel(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_JC_Shader_Tools"
     bl_label = "Shaders"
@@ -163,7 +225,10 @@ class JC_Shader_Panel(bpy.types.Panel):
         row.operator("shader.jc_shader_green", text="Green", icon='SEQUENCE_COLOR_04')
         row.operator("shader.jc_shader_blue", text="Blue", icon='SEQUENCE_COLOR_05')
         
-        
+
+
+    
+# Render Tools
 class JC_Render_Panel(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_JC_Render_Tools"
     bl_label = "Render"
@@ -235,8 +300,11 @@ class JC_Render_Panel(bpy.types.Panel):
         # Submit to Deadline
         row = layout.row()
         row.operator("render.submit_to_deadline", text="Submit to Deadline")
-        
-classes = [JC_Shader_Panel,JC_Render_Panel,JCSolidShaderRed,JCSolidShaderGreen,JCSolidShaderBlue,submit_to_deadline]
+
+
+
+
+classes = [JC_Import_Panel,JC_Shader_Panel,JC_Render_Panel,JCSolidShaderRed,JCSolidShaderGreen,JCSolidShaderBlue,JC_FBX_Camera_Importer,submit_to_deadline]
 # Frame Change Handler
 def frame_change_handler(scene):
     # logger.info('Frame Changed')

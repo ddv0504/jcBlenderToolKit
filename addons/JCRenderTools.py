@@ -161,7 +161,7 @@ class JC_FBX_Camera_Importer(bpy.types.Operator, ImportHelper):
     bl_label = "Import FBX Camera"
     bl_options = {'REGISTER', 'UNDO'}
     filter_glob: StringProperty(default='*.fbx',options={'HIDDEN'})
-    Camera_name_as_filename: BoolProperty(name="Use Custom Props", default=True)
+    Camera_name_as_filename: BoolProperty(name="Camera name as file name", default=True)
     
     def execute(self, context):
         # Get the current scene

@@ -181,6 +181,8 @@ class JC_FBX_Camera_Importer(bpy.types.Operator, ImportHelper):
             camera.name = os.path.splitext(os.path.basename(file_path))[0]
             # Set the camera name as the file name
             camera.data.name = os.path.splitext(os.path.basename(file_path))[0]
+            # Set the camere sensor fit to vertical
+            camera.data.sensor_fit = 'VERTICAL'
         try:
             # Scene frame start
             scene.frame_start = int(camera.animation_data.action.frame_range[0])

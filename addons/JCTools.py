@@ -4,7 +4,7 @@ import os
 import sys
 from pprint import pprint
 import json
-from bpy.props import StringProperty, BoolProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, PointerProperty, IntProperty
 from bpy_extras.io_utils import ImportHelper
 from bpy.types import Operator
 
@@ -639,6 +639,199 @@ class JCCopyBoneDampedTrack(bpy.types.Operator):
         else:
             return {'FINISHED'}
         
+# 추가: Alembic Mesh Sequence Cache 매칭
+class JCAlembicMeshSequenceCacheMatcher(bpy.types.Operator, ImportHelper):
+    bl_idname = "object.jc_alembic_mesh_sequence_cache_matcher"
+    bl_label = "Alembic Mesh Sequence Cache Matcher"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    filter_glob: StringProperty(default='*.abc', options={'HIDDEN'})
+    target_collection: StringProperty(name="Target Collection", description="Target collection name (leave empty for all objects)")
+    
+    def execute(self, context):
+        match_alembic_to_mesh_sequence_cache(self.filepath, self.target_collection if self.target_collection else None)
+        return {'FINISHED'}
+
+# 추가: Collection 선택기 
+class JC_PT_Collection_Selector(bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_JC_Collection_Selector"
+    bl_label = "Collection Selector"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'JC_Tools'
+    
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        row = layout.row()
+        row.label(text="Collections:")
+        
+        # 컬렉션 목록 표시
+        layout.template_list("COLLECTION_UL_List", "", scene, "collection_property", scene, "collection_index")
+        
+        # 선택된 컬렉션으로 작업하는 버튼들
+        row = layout.row()
+        row.operator("collection.select_objects", text="Select Objects")
+        row.operator("collection.toggle_visibility", text="Toggle Visibility")
+        
+        # 필터링 옵션
+        row = layout.row()
+        row.prop(scene, "show_only_top_level", text="Only Top Level")
+        
+# 컬렉션 목록 UI 리스트
+class COLLECTION_UL_List(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        collection = item
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            row = layout.row()
+            row.prop(collection, "name", text="", emboss=False, icon='OUTLINER_COLLECTION')
+            row.prop(collection, "hide_viewport", text="", emboss=False)
+            row.prop(collection, "hide_render", text="", emboss=False)
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon='OUTLINER_COLLECTION')
+
+# 추가: Collection 작업 관련 오퍼레이터들
+class JC_Collection_Select_Objects(bpy.types.Operator):
+    bl_idname = "collection.select_objects"
+    bl_label = "Select Collection Objects"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        scene = context.scene
+        if scene.collection_index >= 0 and scene.collection_index < len(scene.collection_property):
+            collection = scene.collection_property[scene.collection_index]
+            for obj in collection.objects:
+                obj.select_set(True)
+        return {'FINISHED'}
+
+class JC_Collection_Toggle_Visibility(bpy.types.Operator):
+    bl_idname = "collection.toggle_visibility"
+    bl_label = "Toggle Collection Visibility"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        scene = context.scene
+        if scene.collection_index >= 0 and scene.collection_index < len(scene.collection_property):
+            collection = scene.collection_property[scene.collection_index]
+            collection.hide_viewport = not collection.hide_viewport
+        return {'FINISHED'}
+
+# 추가: Alembic 캐시 목록 및 선택기
+class JC_PT_Alembic_Cache_Selector(bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_JC_Alembic_Cache_Selector"
+    bl_label = "Alembic Cache"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'JC_Tools'
+    
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        row = layout.row()
+        row.label(text="Alembic Cache Files:")
+        layout.template_list("ALEMBIC_UL_List", "", scene, "alembic_cache_files", scene, "alembic_cache_index")
+        
+        row = layout.row()
+        row.operator("alembic.load_file", text="Load ABC File")
+        row.operator("alembic.apply_to_selected", text="Apply to Selected")
+        
+        row = layout.row()
+        row.operator("object.jc_alembic_mesh_sequence_cache_matcher", text="Match Alembic Cache")
+
+# Alembic 캐시 목록 UI 리스트
+class ALEMBIC_UL_List(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        cache_file = item
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            row = layout.row()
+            row.prop(cache_file, "name", text="", emboss=False, icon='FILE_CACHE')
+            row.prop(cache_file, "filepath", text="", emboss=False)
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon='FILE_CACHE')
+
+# Alembic 작업 관련 오퍼레이터들
+class JC_Alembic_Load_File(bpy.types.Operator, ImportHelper):
+    bl_idname = "alembic.load_file"
+    bl_label = "Load Alembic File"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    filter_glob: StringProperty(default='*.abc', options={'HIDDEN'})
+    
+    def execute(self, context):
+        # 알렘빅 파일 로드
+        if not os.path.exists(self.filepath):
+            self.report({'ERROR'}, f"파일을 찾을 수 없습니다: {self.filepath}")
+            return {'CANCELLED'}
+            
+        # 이미 로드된 파일인지 확인
+        for cf in bpy.data.cache_files:
+            if cf.filepath == self.filepath:
+                self.report({'INFO'}, f"이미 로드된 알렘빅 파일입니다: {self.filepath}")
+                return {'FINISHED'}
+                
+        # 새 캐시 파일 로드
+        bpy.ops.cachefile.open(filepath=self.filepath)
+        self.report({'INFO'}, f"알렘빅 파일을 로드했습니다: {self.filepath}")
+        return {'FINISHED'}
+
+class JC_Alembic_Apply_To_Selected(bpy.types.Operator):
+    bl_idname = "alembic.apply_to_selected"
+    bl_label = "Apply Alembic to Selected"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        scene = context.scene
+        if scene.alembic_cache_index >= 0 and scene.alembic_cache_index < len(bpy.data.cache_files):
+            cache_file = bpy.data.cache_files[scene.alembic_cache_index]
+            
+            # 선택된 객체들에 알렘빅 캐시 적용
+            for obj in context.selected_objects:
+                if obj.type == 'MESH':
+                    # MeshSequenceCache 모디파이어가 있는지 확인
+                    mod = None
+                    for modifier in obj.modifiers:
+                        if modifier.type == 'MESH_SEQUENCE_CACHE':
+                            mod = modifier
+                            break
+                    
+                    # 없으면 추가
+                    if not mod:
+                        mod = obj.modifiers.new(name="Alembic", type='MESH_SEQUENCE_CACHE')
+                    
+                    # 캐시 파일 설정
+                    mod.cache_file = cache_file
+                    
+                    # 객체 데이터 이름과 일치하는 경로 찾기 시도
+                    matched = False
+                    for path in cache_file.object_paths:
+                        path_str = str(path.path if hasattr(path, 'path') else path.name if hasattr(path, 'name') else path)
+                        # 데이터 이름으로 매칭
+                        if obj.data.name in path_str or path_str.endswith(obj.data.name):
+                            mod.object_path = path_str
+                            matched = True
+                            print(f"데이터 이름 매칭 성공: {obj.data.name} -> {path_str}")
+                            break
+
+                    # 데이터 이름으로 매칭 실패시 객체 이름으로 시도
+                    if not matched:
+                        for path in cache_file.object_paths:
+                            path_str = str(path.path if hasattr(path, 'path') else path.name if hasattr(path, 'name') else path)
+                            if obj.name in path_str or path_str.endswith(obj.name):
+                                mod.object_path = path_str
+                                print(f"객체 이름 매칭 성공: {obj.name} -> {path_str}")
+                                break
+            
+            self.report({'INFO'}, f"알렘빅 캐시를 선택된 객체들에 적용했습니다.")
+        else:
+            self.report({'ERROR'}, "선택된 알렘빅 캐시 파일이 없습니다.")
+            return {'CANCELLED'}  # 실패 시 CANCELLED 반환
+            
+        return {'FINISHED'}  # 성공 시 FINISHED 반환
+
 # JC Common Tools Panel
 class JC_PT_Common_Tools(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_JC_Common_Tools_Panel"
@@ -665,9 +858,24 @@ class JC_PT_Collection_Tools(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        # Collection
+        scene = context.scene
+        
+        # 컬렉션 관리
         row = layout.row()
-        row.label(text="Collection:")
+        row.label(text="Collections:")
+        
+        # 컬렉션 리스트 보기
+        layout.template_list("COLLECTION_UL_List", "", bpy.data, "collections", scene, "active_collection_index")
+        
+        # 컬렉션 작업 버튼
+        row = layout.row(align=True)
+        row.operator("collection.objects_select", text="Select Objects", icon='RESTRICT_SELECT_OFF')
+        row.operator("collection.hide_toggle", text="Toggle Visibility", icon='HIDE_OFF')
+        
+        # 컬렉션 기타 관리 옵션
+        row = layout.row()
+        row.operator("jc.collection_create", text="Create Collection", icon='COLLECTION_NEW')
+        row.operator("collection.objects_remove", text="Remove from Collection", icon='X')
 
 # JC_Rig_Tools
 class JC_PT_Rig_Tools(bpy.types.Panel):
@@ -696,19 +904,55 @@ class JC_Animation_Tools(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        # File Builder
-        row = layout.row()
-        row.label(text="Animation:")
-        row = layout.row()
+        scene = context.scene
+        
+        # Keyframe 설정 섹션
+        box = layout.box()
+        box.label(text="Keyframes:")
+        row = box.row()
         row.operator("object.jc_set_key_frame", text="Set Key Frame")
-        row = layout.row()
+        row = box.row()
         row.operator("object.jc_set_key_frame_translate", text="Set Key Frame Translate")
-        row = layout.row()
+        row = box.row()
         row.operator("object.jc_set_key_frame_rotate", text="Set Key Frame Rotate")
-        row = layout.row()
+        row = box.row()
         row.operator("object.jc_set_key_frame_scale", text="Set Key Frame Scale")
-        # row.operator("object.jc_file_builder", text="Build File")
-
+        
+        # Matrix Animation Baker 섹션 추가
+        box = layout.box()
+        box.label(text="Matrix Animation Baker:")
+        
+        # 매트릭스 애니메이션 베이커 프로퍼티가 있을 경우 표시
+        if hasattr(scene, "matrix_baker_props"):
+            props = scene.matrix_baker_props
+            
+            # 프레임 범위 설정
+            row = box.row(align=True)
+            row.label(text="Frame Range:")
+            
+            # 두 번째 행에 프레임 설정 배치
+            row = box.row(align=True)
+            row.prop(props, "start_frame", text="Start")
+            row.prop(props, "end_frame", text="End")
+            row.prop(props, "frame_step", text="Step")
+            
+            # 옵션들
+            row = box.row()
+            col = row.column(align=True)
+            col.prop(props, "only_selected")
+            col.prop(props, "clear_constraints")
+            col.prop(props, "clear_drivers")
+            
+            col = row.column(align=True)
+            col.prop(props, "bake_location")
+            col.prop(props, "bake_rotation")
+            col.prop(props, "bake_scale")
+            col.prop(props, "bake_camera")
+            
+            # 베이크 버튼
+            row = box.row()
+            row.scale_y = 1.5
+            row.operator("object.jc_matrix_animation_baker", text="Bake Matrix Animation")
 # Visibility Tools
 class JC_Visibility_Tools(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_JC_Visibility_Tools"
@@ -758,6 +1002,48 @@ class JC_Visibility_Tools(bpy.types.Panel):
         # layout.template_list("JC_UL_RENDERABLE_UIList", "", scene, "jc_renderable_object_list", scene, "jc_renderable_object_index")
         # layout.operator("object.select_object_from_jc_renderable_list", text="Select Object")
         # layout.operator("object.refresh_renderable_object_list", text="Refresh List")
+
+# 추가: Alembic Cache 관리 패널
+class JC_PT_Alembic_Cache_Manager(bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_JC_Alembic_Cache_Manager"
+    bl_label = "Alembic Cache"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'JC_Tools'
+    
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        # 알렘빅 캐시 파일 리스트
+        row = layout.row()
+        row.label(text="Alembic Cache Files:")
+        layout.template_list("ALEMBIC_UL_List", "", bpy.data, "cache_files", scene, "active_cache_file_index")
+        
+        # 알렘빅 캐시 작업 버튼
+        row = layout.row(align=True)
+        row.operator("alembic.load_file", text="Load ABC File", icon='IMPORT')
+        row.operator("alembic.apply_to_selected", text="Apply to Selected", icon='MODIFIER_DATA')
+        
+        # 자동 매칭 도구
+        row = layout.row()
+        row.operator("object.jc_alembic_mesh_sequence_cache_matcher", text="Auto Match by Name", icon='SNAP_ON')
+        
+        # 현재 선택된 캐시 파일의 경로들 표시
+        if len(bpy.data.cache_files) > 0 and scene.active_cache_file_index < len(bpy.data.cache_files):
+            cache_file = bpy.data.cache_files[scene.active_cache_file_index]
+            box = layout.box()
+            box.label(text=f"Paths in: {cache_file.name}")
+            
+            # 경로 목록 표시
+            col = box.column()
+            for path in cache_file.object_paths:
+                path_str = str(path.path if hasattr(path, 'path') else path.name if hasattr(path, 'name') else path)
+                row = col.row()
+                row.label(text=path_str)
+                op = row.operator("alembic.assign_path", text="", icon='SNAP_ON')
+                op.path = path_str
+                op.cache_index = scene.active_cache_file_index
 
 # Import Tools
 class JC_PT_Import_Panel(bpy.types.Panel):
@@ -850,9 +1136,10 @@ class JC_PT_Shader_Panel(bpy.types.Panel):
         scene = context.scene
         row = layout.row()
         row.label(text="Shader List:")
-        row.operator("shader.jc_shader_red", text="Red", icon='SEQUENCE_COLOR_01')
-        row.operator("shader.jc_shader_green", text="Green", icon='SEQUENCE_COLOR_04')
-        row.operator("shader.jc_shader_blue", text="Blue", icon='SEQUENCE_COLOR_05')
+
+        row.operator("shader.jc_shader_red", text="Red", icon='COLOR_RED')
+        row.operator("shader.jc_shader_green", text="Green", icon='COLOR_GREEN')
+        row.operator("shader.jc_shader_blue", text="Blue", icon='COLOR_BLUE')
         
         row = layout.row()
         row.label(text="Remove Materials:")
@@ -1116,16 +1403,29 @@ class JC_Export_Shader(bpy.types.Operator):
                     # data[mat.name]['Roughness'] = node.inputs['Roughness'].default_value
                     # data[mat.name]['Anisotropic'] = node.inputs['Anisotropic'].default_value
                     # data[mat.name]['Anisotropic Rotation'] = node.inputs['Anisotropic Rotation'].default_value
-                    # data[mat.name]['Sheen'] = node.inputs['Sheen'].default_value
-                    # data[mat.name]['Sheen Tint'] = node.inputs['Sheen Tint'].default_value
-                    # data[mat.name]['Clearcoat'] = node.inputs['Clearcoat'].default_value
-                    # data[mat.name]['Clearcoat Roughness'] = node.inputs['Clearcoat Roughness'].default_value
-                    # data[mat.name]['IOR'] = node.inputs['IOR'].default_value
-                    # data[mat.name]['Transmission'] = node.inputs['Transmission'].default_value
-                    # data[mat.name]['Transmission Roughness'] = node.inputs['Transmission Roughness'].default_value
-                    # data[mat.name]['Emission'] = node.inputs['Emission'].default_value
-                    # data[mat.name]['Alpha'] = node.inputs['Alpha'].default_value
-        
+class JC_Export_Shader(bpy.types.Operator):
+    bl_idname = "shader.jc_export_shader"
+    bl_label = "Export Shader"
+    bl_options = {'REGISTER', 'UNDO'}
+    def execute(self, context):
+        data = {}
+        materials = bpy.data.materials
+        for mat in materials:
+            # print(mat)
+            data[mat.name] = {}
+            if not mat.node_tree:
+                continue
+            for node in mat.node_tree.nodes:
+                if node.type == 'BSDF_PRINCIPLED':
+                    for index,inp in enumerate(node.inputs):
+                        # data[mat.name][inp.name] = node.inputs[inp.name].default_value
+                        # print(inp.name,node.inputs[index].default_value,type(node.inputs[index].default_value))
+                        if type(node.inputs[index].default_value) == bpy.types.bpy_prop_array:
+                            data[mat.name][inp.name] = list(node.inputs[index].default_value)
+                        else:
+                            data[mat.name][inp.name] = node.inputs[index].default_value
+        pprint(data)
+                        
         return {'FINISHED'}
         
         
@@ -1353,6 +1653,43 @@ class JC_PT_Compositing_output(bpy.types.Panel):
         # create a new output node
         row.operator("node.jc_compositor_output", text="Create Output Node")
 
+# 추가: 특정 Alembic 경로를 선택된 객체에 할당하는 오퍼레이터
+class JC_Alembic_Assign_Path(bpy.types.Operator):
+    bl_idname = "alembic.assign_path"
+    bl_label = "Assign Path to Selected"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    path: StringProperty(name="Path", description="Alembic object path")
+    cache_index: IntProperty(name="Cache Index", default=0)
+    
+    def execute(self, context):
+        if len(bpy.data.cache_files) <= self.cache_index:
+            self.report({'ERROR'}, "캐시 파일을 찾을 수 없습니다.")
+            return {'CANCELLED'}
+            
+        cache_file = bpy.data.cache_files[self.cache_index]
+        
+        # 선택된 객체에 경로 할당
+        for obj in context.selected_objects:
+            if obj.type != 'MESH':
+                continue
+                
+            # 모디파이어 찾기 또는 추가
+            mod = None
+            for modifier in obj.modifiers:
+                if modifier.type == 'MESH_SEQUENCE_CACHE':
+                    mod = modifier
+                    break
+                    
+            if not mod:
+                mod = obj.modifiers.new(name="Alembic", type='MESH_SEQUENCE_CACHE')
+                
+            # 캐시 파일과 경로 설정
+            mod.cache_file = cache_file
+            mod.object_path = self.path
+            
+        self.report({'INFO'}, f"{len(context.selected_objects)}개의 객체에 '{self.path}' 경로를 할당했습니다.")
+        return {'FINISHED'}
 
 # ============================Functions=================================================
 
@@ -1428,6 +1765,126 @@ def clear_all_modifiers_from_selected():
 
     print("All modifiers removed from selected objects.")
 
+# 추가: Alembic 캐시를 객체와 매칭시키는 함수
+def match_alembic_to_mesh_sequence_cache(alembic_path, target_collection=None):
+    """
+    MeshSequenceCache 모디파이어를 가진 오브젝트들에 Alembic 파일을 데이터 이름으로 매칭시킵니다.
+    
+    :param alembic_path: Alembic 파일의 경로
+    :param target_collection: 대상 컬렉션 (None이면 모든 오브젝트 탐색)
+    """
+    
+    # Alembic 파일 존재 확인
+    if not os.path.exists(alembic_path):
+        print(f"오류: Alembic 파일을 찾을 수 없습니다: {alembic_path}")
+        return
+    
+    # 알렘빅 캐시 로드 또는 가져오기
+    if alembic_path not in [cf.filepath for cf in bpy.data.cache_files]:
+        bpy.ops.cachefile.open(filepath=alembic_path)
+    
+    cache_file = None
+    for cf in bpy.data.cache_files:
+        if cf.filepath == alembic_path:
+            cache_file = cf
+            break
+    
+    if not cache_file:
+        print(f"오류: Alembic 캐시 파일을 로드할 수 없습니다: {alembic_path}")
+        return
+    
+    # 대상 오브젝트 목록 결정
+    if target_collection:
+        if target_collection in bpy.data.collections:
+            objects_to_process = bpy.data.collections[target_collection].objects
+        else:
+            print(f"오류: 컬렉션을 찾을 수 없습니다: {target_collection}")
+            return
+    else:
+        objects_to_process = bpy.data.objects
+    
+    # CacheObjectPath 객체에서 경로 문자열을 얻는 헬퍼 함수
+    def get_path_string(cache_path_obj):
+        # cache_path_obj 객체에서 경로 문자열 추출
+        if hasattr(cache_path_obj, "path"):
+            return cache_path_obj.path
+        elif hasattr(cache_path_obj, "name"):
+            return cache_path_obj.name
+        else:
+            # 마지막 방법: 문자열 변환 시도
+            return str(cache_path_obj)
+    
+    # 경로에서 이름만 추출하는 함수
+    def extract_name_from_path(path_string):
+        if '/' in path_string:
+            return path_string.split('/')[-1]
+        return path_string
+    
+    # 각 오브젝트에 대해 MeshSequenceCache 모디파이어 매칭
+    matched_count = 0
+    
+    # 캐시 파일의 모든 경로를 미리 처리
+    abc_paths = []
+    for path_obj in cache_file.object_paths:
+        path_string = get_path_string(path_obj)
+        abc_paths.append(path_string)
+    
+    # 디버깅: 사용 가능한 Alembic 경로 출력
+    print("사용 가능한 Alembic 경로:")
+    for path in abc_paths:
+        print(f"  - {path}")
+    
+    for obj in objects_to_process:
+        if obj.type != 'MESH':
+            continue
+            
+        # 이미 MeshSequenceCache 모디파이어가 있는지 확인
+        seq_cache_mod = None
+        for mod in obj.modifiers:
+            if mod.type == 'MESH_SEQUENCE_CACHE':
+                seq_cache_mod = mod
+                break
+        
+        # 모디파이어가 없으면 추가
+        if not seq_cache_mod:
+            seq_cache_mod = obj.modifiers.new(name="Alembic", type='MESH_SEQUENCE_CACHE')
+        
+        # 오브젝트 이름으로 데이터 이름 매칭 시도
+        obj_name = obj.name
+        
+        # 캐시 파일 설정
+        seq_cache_mod.cache_file = cache_file
+        
+        # 정확히 일치하는 이름 찾기
+        exact_match = None
+        for path in abc_paths:
+            path_name = extract_name_from_path(path)
+            if obj_name == path_name:
+                exact_match = path
+                break
+        
+        if exact_match:
+            seq_cache_mod.object_path = exact_match
+            matched_count += 1
+            print(f"매칭 성공 (정확): {obj_name} -> {exact_match}")
+            continue
+            
+        # 정확히 일치하는 이름이 없으면 부분 일치 시도
+        best_match = None
+        for path in abc_paths:
+            path_name = extract_name_from_path(path)
+            if obj_name in path_name or path_name in obj_name:
+                best_match = path
+                break
+        
+        if best_match:
+            seq_cache_mod.object_path = best_match
+            matched_count += 1
+            print(f"매칭 성공 (부분): {obj_name} -> {best_match}")
+        else:
+            print(f"매칭 실패: {obj_name} - 일치하는 Alembic 경로를 찾을 수 없습니다")
+    
+    print(f"총 {matched_count}개 오브젝트 매칭 완료")
 
 # outliner context menu
 # Define the custom operator
@@ -1558,9 +2015,355 @@ def draw_shadernodes_panel(self, context, selected_only=False, visible_only=Fals
         else:
             row.label(text="None")
 
-classes =  [
+# 추가: 컬렉션 관련 오퍼레이터들
+class JC_Collection_Create(bpy.types.Operator):
+    bl_idname = "jc.collection_create"  # collection.create에서 변경
+    bl_label = "Create Collection"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    name: StringProperty(name="Name", default="New Collection")
+    
+    def execute(self, context):
+        new_collection = bpy.data.collections.new(self.name)
+        context.scene.collection.children.link(new_collection)
+        return {'FINISHED'}
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+class JC_Collection_Objects_Select(bpy.types.Operator):
+    bl_idname = "jc.collection_objects_select"
+    bl_label = "Select Collection Objects"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        if context.scene.active_collection_index >= 0:
+            collection = bpy.data.collections[context.scene.active_collection_index]
+            bpy.ops.object.select_all(action='DESELECT')
+            for obj in collection.objects:
+                if obj.visible_get():
+                    obj.select_set(True)
+            
+            # 하나라도 선택되었으면 첫 번째를 액티브로 설정
+            selected = context.selected_objects
+            if selected:
+                context.view_layer.objects.active = selected[0]
+                
+            self.report({'INFO'}, f"{len(selected)}개 오브젝트 선택됨")
+        return {'FINISHED'}
+
+class JC_Collection_Hide_Toggle(bpy.types.Operator):
+    bl_idname = "jc.collection_hide_toggle"  
+    bl_label = "Toggle Collection Visibility"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        if context.scene.active_collection_index >= 0:
+            collection_name = bpy.data.collections[context.scene.active_collection_index].name
+            
+            # 현재 뷰 레이어에서 해당 컬렉션 찾기
+            def find_layer_collection(layer_coll, coll_name):
+                if layer_coll.name == coll_name:
+                    return layer_coll
+                for child in layer_coll.children:
+                    found = find_layer_collection(child, coll_name)
+                    if found:
+                        return found
+                return None
+            
+            layer_coll = find_layer_collection(context.view_layer.layer_collection, collection_name)
+            if layer_coll:
+                layer_coll.hide_viewport = not layer_coll.hide_viewport
+                hide_state = "숨김" if layer_coll.hide_viewport else "표시"
+                self.report({'INFO'}, f"컬렉션 '{collection_name}'을(를) {hide_state} 상태로 변경했습니다")
+        return {'FINISHED'}
+
+class JC_MatrixBakerProperties(bpy.types.PropertyGroup):
+    start_frame: IntProperty(
+        name="Start Frame",
+        description="Starting frame for baking",
+        default=1,
+        min=0
+    )
+    
+    end_frame: IntProperty(
+        name="End Frame",
+        description="Ending frame for baking",
+        default=250,
+        min=0
+    )
+    
+    frame_step: IntProperty(
+        name="Frame Step",
+        description="Number of frames to skip during baking",
+        default=1,
+        min=1
+    )
+    
+    only_selected: BoolProperty(
+        name="Only Selected",
+        description="Bake only selected objects",
+        default=True
+    )
+    
+    clear_constraints: BoolProperty(
+        name="Clear Constraints",
+        description="Clear constraints after baking",
+        default=True
+    )
+    
+    clear_drivers: BoolProperty(
+        name="Clear Drivers",
+        description="Clear drivers after baking",
+        default=True
+    )
+    
+    visual_keying: BoolProperty(
+        name="Visual Keying",
+        description="Use visual location for keyframing",
+        default=True
+    )
+    
+    bake_location: BoolProperty(
+        name="Location",
+        description="Bake location",
+        default=True
+    )
+    
+    bake_rotation: BoolProperty(
+        name="Rotation",
+        description="Bake rotation",
+        default=True
+    )
+    
+    bake_scale: BoolProperty(
+        name="Scale",
+        description="Bake scale",
+        default=True
+    )
+    
+    bake_camera: BoolProperty(
+        name="Camera Properties",
+        description="Bake camera properties (focal length, etc.)",
+        default=True
+    )
+
+# 추가: Matrix Animation Baker 오퍼레이터
+class JC_OBJECT_OT_matrix_animation_baker(bpy.types.Operator):
+    bl_idname = "object.jc_matrix_animation_baker"
+    bl_label = "Bake Matrix Animation"
+    bl_description = "Bake animation based on transformation matrices and camera properties"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def get_matrix_world_per_frame(self, obj, frame):
+        """Get the world matrix of an object at a specific frame"""
+        scene = bpy.context.scene
+        
+        # Store current frame
+        current_frame = scene.frame_current
+        
+        # Set frame
+        scene.frame_set(frame)
+        
+        # Get matrix
+        matrix = obj.matrix_world.copy()
+        
+        # Restore current frame
+        scene.frame_set(current_frame)
+        
+        return matrix
+    
+    def get_camera_properties_per_frame(self, camera_obj, frame):
+        """Get camera properties at a specific frame"""
+        scene = bpy.context.scene
+        
+        # Store current frame
+        current_frame = scene.frame_current
+        
+        # Set frame
+        scene.frame_set(frame)
+        
+        # Get camera data properties
+        camera_data = camera_obj.data
+        properties = {
+            'focal_length': camera_data.lens,
+            'sensor_width': camera_data.sensor_width,
+            'sensor_height': camera_data.sensor_height,
+            'shift_x': camera_data.shift_x,
+            'shift_y': camera_data.shift_y,
+            'dof_distance': camera_data.dof.focus_distance,
+            'aperture_fstop': camera_data.dof.aperture_fstop if hasattr(camera_data.dof, 'aperture_fstop') else 0.0
+        }
+        
+        # Restore current frame
+        scene.frame_set(current_frame)
+        
+        return properties
+    
+    def get_keyframeable_objects(self, only_selected):
+        """Return a list of objects that can be keyframed"""
+        if only_selected:
+            return [obj for obj in bpy.context.selected_objects]
+        else:
+            return [obj for obj in bpy.context.scene.objects]
+    
+    def decompose_matrix(self, matrix):
+        """Decompose a matrix into location, rotation, and scale"""
+        loc, rot, scale = matrix.decompose()
+        
+        # Convert rotation to Euler or quaternion depending on current rotation mode
+        if bpy.context.object.rotation_mode == 'QUATERNION':
+            rotation = rot
+        else:
+            rotation = rot.to_euler(bpy.context.object.rotation_mode)
+            
+        return loc, rotation, scale
+    
+    def keyframe_transformation(self, obj, frame, loc, rot, scale, props):
+        """Keyframe location, rotation, and scale for an object"""
+        # Set keyframes based on baking options
+        if props.bake_location:
+            obj.location = loc
+            obj.keyframe_insert(data_path="location", frame=frame)
+            
+        if props.bake_rotation:
+            if obj.rotation_mode == 'QUATERNION':
+                obj.rotation_quaternion = rot
+                obj.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+            else:
+                obj.rotation_euler = rot
+                obj.keyframe_insert(data_path="rotation_euler", frame=frame)
+                
+        if props.bake_scale:
+            obj.scale = scale
+            obj.keyframe_insert(data_path="scale", frame=frame)
+    
+    def keyframe_camera_properties(self, camera_obj, frame, camera_props):
+        """Keyframe camera properties"""
+        camera_data = camera_obj.data
+        
+        # Set keyframes for camera properties
+        camera_data.lens = camera_props['focal_length']
+        camera_data.keyframe_insert(data_path="lens", frame=frame)
+        
+        camera_data.sensor_width = camera_props['sensor_width']
+        camera_data.keyframe_insert(data_path="sensor_width", frame=frame)
+        
+        camera_data.sensor_height = camera_props['sensor_height']
+        camera_data.keyframe_insert(data_path="sensor_height", frame=frame)
+        
+        camera_data.shift_x = camera_props['shift_x']
+        camera_data.keyframe_insert(data_path="shift_x", frame=frame)
+        
+        camera_data.shift_y = camera_props['shift_y']
+        camera_data.keyframe_insert(data_path="shift_y", frame=frame)
+        
+        camera_data.dof.focus_distance = camera_props['dof_distance']
+        camera_data.dof.keyframe_insert(data_path="focus_distance", frame=frame)
+        
+        if hasattr(camera_data.dof, 'aperture_fstop'):
+            camera_data.dof.aperture_fstop = camera_props['aperture_fstop']
+            camera_data.dof.keyframe_insert(data_path="aperture_fstop", frame=frame)
+    
+    def clear_object_drivers(self, obj):
+        """Clear all drivers from an object and its data"""
+        # Try to clear object drivers
+        try:
+            if obj.animation_data and obj.animation_data.drivers:
+                for driver in obj.animation_data.drivers:
+                    obj.animation_data.drivers.remove(driver)
+        except:
+            pass
+        
+        # Try to clear data drivers (for meshes, cameras, etc.)
+        try:
+            if obj.data and obj.data.animation_data and obj.data.animation_data.drivers:
+                for driver in obj.data.animation_data.drivers:
+                    obj.data.animation_data.drivers.remove(driver)
+        except:
+            pass
+    
+    def execute(self, context):
+        scene = context.scene
+        props = scene.matrix_baker_props
+        
+        # Get the list of objects to bake
+        objects = self.get_keyframeable_objects(props.only_selected)
+        
+        if not objects:
+            self.report({'WARNING'}, "No valid objects selected for baking")
+            return {'CANCELLED'}
+        
+        # Store initial frame
+        initial_frame = scene.frame_current
+        
+        # Bake animation for each object
+        for obj in objects:
+            self.report({'INFO'}, f"Baking animation for {obj.name}")
+            
+            # Store matrices for each frame
+            matrices = {}
+            camera_props = {}
+            
+            for frame in range(props.start_frame, props.end_frame + 1, props.frame_step):
+                matrices[frame] = self.get_matrix_world_per_frame(obj, frame)
+                
+                # Store camera properties if it's a camera and bake_camera is enabled
+                if obj.type == 'CAMERA' and props.bake_camera:
+                    camera_props[frame] = self.get_camera_properties_per_frame(obj, frame)
+            
+            # Apply matrices and keyframe transformations
+            for frame in matrices.keys():
+                scene.frame_set(frame)
+                
+                # Decompose matrix into location, rotation, and scale
+                loc, rot, scale = self.decompose_matrix(matrices[frame])
+                
+                # Keyframe transformations
+                self.keyframe_transformation(obj, frame, loc, rot, scale, props)
+                
+                # Keyframe camera properties if it's a camera
+                if obj.type == 'CAMERA' and props.bake_camera and frame in camera_props:
+                    self.keyframe_camera_properties(obj, frame, camera_props[frame])
+            
+            # Clear constraints if needed
+            if props.clear_constraints and obj.constraints:
+                for constraint in obj.constraints:
+                    obj.constraints.remove(constraint)
+            
+            # Clear drivers if needed
+            if props.clear_drivers:
+                self.clear_object_drivers(obj)
+        
+        # Restore initial frame
+        scene.frame_set(initial_frame)
+        
+        self.report({'INFO'}, "Matrix animation baking completed")
+        return {'FINISHED'}
+    
+class JC_Collection_Objects_Remove(bpy.types.Operator):
+    bl_idname = "jc.collection_objects_remove" 
+    bl_label = "Remove Selected from Collection"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        if context.scene.active_collection_index >= 0:
+            collection = bpy.data.collections[context.scene.active_collection_index]
+            removed_count = 0
+            
+            for obj in context.selected_objects:
+                if obj.name in collection.objects:
+                    collection.objects.unlink(obj)
+                    removed_count += 1
+            
+            self.report({'INFO'}, f"{removed_count}개 오브젝트를 컬렉션 '{collection.name}'에서 제거했습니다")
+        return {'FINISHED'}
+
+classes = [
             JC_WM_Settings,
             JC_PT_Common_Tools,
+            JC_PT_Collection_Tools,
+            JC_MatrixBakerProperties,
+            JC_OBJECT_OT_matrix_animation_baker,
             JC_PT_Rig_Tools,
             JC_Animation_Tools,
             JC_Visibility_Tools,
@@ -1581,7 +2384,6 @@ classes =  [
             JC_Hidden_UL_OBJECT_OT_refresh_object_list,
             JC_Select_Object_From_Hidden_List,
             JC_Export_Shader,
-            # JC_UL_RENDERABLE_UIList,
             JC_Select_Object_From_Renderable_List,
             JC_Renderable_UL_OBJECT_OT_refresh_object_list,
             JC_Display_UL_OBJECT_OT_refresh_object_list,
@@ -1605,14 +2407,21 @@ classes =  [
             JC_PT_Compositing_Panel,
             JC_PT_Compositing_output,
             JC_Compositor_Output,
-            JC_OT_Exclude_Selected_Collection_From_All_ViewLayers
-            # JCCompositorOutput
-            # JCFileBuilder,
-            # BasicMenu
+            JC_OT_Exclude_Selected_Collection_From_All_ViewLayers,
+            JCAlembicMeshSequenceCacheMatcher,
+            JC_PT_Alembic_Cache_Manager,
+            ALEMBIC_UL_List,
+            JC_Alembic_Load_File,
+            JC_Alembic_Apply_To_Selected,
+            JC_Alembic_Assign_Path,
+            COLLECTION_UL_List,
+            JC_Collection_Create,
+            JC_Collection_Objects_Select,
+            JC_Collection_Hide_Toggle,
+            JC_Collection_Objects_Remove
             ]
 
 def register():
-
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.WindowManager.jc_wm_settings = bpy.props.PointerProperty(type=JC_WM_Settings)
@@ -1620,9 +2429,17 @@ def register():
     bpy.types.Scene.jc_hidden_object_index = bpy.props.IntProperty(name="Index", default=0)
     bpy.types.Scene.jc_no_material_object_list = bpy.props.CollectionProperty(type=JC_NO_MAT_OBJECT_ITEM)
     bpy.types.Scene.jc_no_mat_object_index = bpy.props.IntProperty(name="Index", default=0)
+    
+    bpy.types.Scene.active_collection_index = bpy.props.IntProperty(name="Active Collection Index", default=0)
+    bpy.types.Scene.alembic_cache_index = bpy.props.IntProperty(name="Alembic Cache Index", default=0)  # active_cache_file_index에서 변경
+    bpy.types.Scene.matrix_baker_props = bpy.props.PointerProperty(type=JC_MatrixBakerProperties)
+    
+    # bpy.types.Scene.active_collection_index = bpy.props.IntProperty(name="Active Collection Index", default=0)
+    bpy.types.Scene.active_cache_file_index = bpy.props.IntProperty(name="Active Cache File Index", default=0)
+    
     bpy.types.OUTLINER_MT_context_menu.append(JC_OutLiner_Context_Menu)
-def unregister():
 
+def unregister():
     for cls in classes:
         bpy.utils.unregister_class(cls)
 
@@ -1630,6 +2447,13 @@ def unregister():
     del bpy.types.Scene.jc_hidden_object_index
     del bpy.types.Scene.jc_no_material_object_list
     del bpy.types.Scene.jc_no_mat_object_index
+    del bpy.types.Scene.matrix_baker_props
+
+
+    del bpy.types.Scene.active_collection_index
+    del bpy.types.Scene.active_cache_file_index
+    del bpy.types.Scene.alembic_cache_index
     bpy.types.OUTLINER_MT_context_menu.remove(JC_OutLiner_Context_Menu)
+
 if __name__ == "__main__":
     register()
